@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go: ['1.13']
+    env:
+      VERBOSE: 1
+      GOFLAGS: -mod=readonly
+      GOPROXY: https://proxy.golang.org
+
+    services:
+      postgres:
+        image: postgres:10
+        env:
+          POSTGRES_USER: db_errors
+          POSTGRES_PASSWORD: db_errors_password
+          POSTGRES_DB: db_errors_test
+        ports:
+          - 5432
+        # needed because the postgres container does not provide a healthcheck
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+      mysql:
+        image: mysql:5
+        env:
+          MYSQL_DATABASE: db_errors_test
+          MYSQL_USER: db_errors
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_ALLOW_EMPTY_PASSWORD: yes
+        ports:
+          - 3306
+      mssql:
+        image: microsoft/mssql-server-linux:2017-CU12
+        env:
+          ACCEPT_EULA: Y
+          SA_PASSWORD: eioC9vvCZzQSy4S9g37i
+        ports:
+          - 1433
+
+    steps:
+      - name: Set up Go
+        uses: actions/setup-go@v1
+        with:
+          go-version: ${{ matrix.go }}
+
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Download Deps
+        run: go mod download
+
+      - name: Lint
+        run: make lint
+
+      - name: Build
+        run: make build
+
+      - name: Test
+        env:
+          POSTGRES_URI: postgres://db_errors:db_errors_password@localhost:${{ job.services.postgres.ports[5432] }}/db_errors_test?sslmode=disable
+          MYSQL_URI: root:root@(localhost:${{ job.services.mysql.ports[3306] }})/db_errors_test
+          MSSQL_URI: sqlserver://sa:eioC9vvCZzQSy4S9g37i@localhost:${{ job.services.mssql.ports[1433] }}
+        run: make test
